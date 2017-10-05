@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Data.Common;
 using System.Diagnostics;
 using System.Linq;
 using System.Threading;
@@ -9,7 +10,7 @@ namespace BenchmarkDb
 {
     class Program
     {
-        static int MaxThreads = 512;
+        static int MaxThreads = 128;
         static int MaxTransactions = MaxThreads * 200;
         static long Counter = 0;
 
@@ -23,33 +24,38 @@ namespace BenchmarkDb
                 int.TryParse(args[2], out MaxTransactions);
             }
 
-            var connectionString = "Server=172.16.228.78;Database=hello_world;User Id=benchmarkdbuser;Password=benchmarkdbpass;Maximum Pool Size=1024;NoResetOnClose=true";
+            //DbProviderFactory factory = Npgsql.NpgsqlFactory.Instance;
+            //var connectionString = "Server=172.16.228.78;Database=hello_world;User Id=benchmarkdbuser;Password=benchmarkdbpass;Maximum Pool Size=1024;NoResetOnClose=true";
+
+            //DbProviderFactory factory = MySql.Data.MySqlClient.MySqlClientFactory.Instance;
+            //var connectionString = "Server=172.16.228.78;Database=hello_world;User Id=benchmarkdbuser;Password=benchmarkdbpass";
+
+            DbProviderFactory factory = MySql.Data.MySqlClient.MySqlClientFactory.Instance;
+            var connectionString = "Server=172.16.228.78;Database=hello_world;User Id=benchmarkdbuser;Password=benchmarkdbpass";
 
             var stopwatch = new Stopwatch();
             stopwatch.Start();
 
             var tasks = Enumerable.Range(1, MaxThreads).Select(i =>
             {
-                return Task.Run(async () =>
+                return Thing();
+
+                async Task Thing()
                 {
                     while (Interlocked.Add(ref Counter, 1) < MaxTransactions)
                     {
-                        using (var connection = Npgsql.NpgsqlFactory.Instance.CreateConnection())
+                        using (var connection = factory.CreateConnection())
                         {
                             connection.ConnectionString = connectionString;
                             await connection.QueryAsync("SELECT id,message FROM fortune");
                         }
                     }
-
-                    lock (synlock)
-                    {
-                        stopwatch.Stop();
-                    }
-                });
+                }
             });
 
             Task.WhenAll(tasks).GetAwaiter().GetResult();
 
+            stopwatch.Stop();
             Console.WriteLine($"{MaxTransactions / stopwatch.Elapsed.TotalSeconds}");
         }
     }
