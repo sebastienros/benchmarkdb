@@ -10,33 +10,34 @@ namespace BenchmarkDb
 {
     class Program
     {
-        static int MaxThreads = 128;
-        static int MaxTransactions = MaxThreads * 200;
-        static long Counter = 0;
+        static int Threads = 1024;
+        static int MaxTransactions = 100000000;
+        static int Counter = 0;
 
         static object synlock = new object();
 
         static void Main(string[] args)
         {
-            if (args.Length > 2)
-            {
-                int.TryParse(args[1], out MaxThreads);
-                int.TryParse(args[2], out MaxTransactions);
-            }
+            //if (args.Length > 2)
+            //{
+            //    int.TryParse(args[1], out MaxThreads);
+            //    int.TryParse(args[2], out TransactionsPerThread);
+            //}
 
             //DbProviderFactory factory = Npgsql.NpgsqlFactory.Instance;
             //var connectionString = "Server=172.16.228.78;Database=hello_world;User Id=benchmarkdbuser;Password=benchmarkdbpass;Maximum Pool Size=1024;NoResetOnClose=true";
 
-            //DbProviderFactory factory = MySql.Data.MySqlClient.MySqlClientFactory.Instance;
-            //var connectionString = "Server=172.16.228.78;Database=hello_world;User Id=benchmarkdbuser;Password=benchmarkdbpass";
+            DbProviderFactory factory = System.Data.SqlClient.SqlClientFactory.Instance;
+            var connectionString = "Server=172.16.228.78;Database=hello_world;User Id=sa;Password=Benchmarkdbp@55;";
+            //var connectionString = "Server=SEBROS-Z440;Database=benchmarks;User Id=sa;Password=Demo123!;";
 
-            DbProviderFactory factory = MySql.Data.MySqlClient.MySqlClientFactory.Instance;
-            var connectionString = "Server=172.16.228.78;Database=hello_world;User Id=benchmarkdbuser;Password=benchmarkdbpass";
+            //DbProviderFactory factory = MySql.Data.MySqlClient.MySqlClientFactory.Instance;
+            //var connectionString = "Server=172.16.228.78;Database=hello_world;User Id=benchmarkdbuser;Password=benchmarkdbpass;Maximum Pool Size=1024;";
 
             var stopwatch = new Stopwatch();
             stopwatch.Start();
 
-            var tasks = Enumerable.Range(1, MaxThreads).Select(i =>
+            var tasks = Enumerable.Range(1, Threads).Select(i =>
             {
                 return Thing();
 
@@ -47,16 +48,29 @@ namespace BenchmarkDb
                         using (var connection = factory.CreateConnection())
                         {
                             connection.ConnectionString = connectionString;
-                            await connection.QueryAsync("SELECT id,message FROM fortune");
+                            var results = await connection.QueryAsync("SELECT id,message FROM fortune");
+
+                            if (results.Count() != 12)
+                            {
+                                throw new ApplicationException();
+                            }
                         }
                     }
                 }
-            });
+            }).ToList();
 
-            Task.WhenAll(tasks).GetAwaiter().GetResult();
+
+            tasks.Add(Task.Delay(TimeSpan.FromSeconds(10)));
+
+            Task.WhenAny(tasks).GetAwaiter().GetResult();
+
+            if (Counter <= 1)
+            {
+                throw new ApplicationException("Connection strings seems wrong");
+            }
 
             stopwatch.Stop();
-            Console.WriteLine($"{MaxTransactions / stopwatch.Elapsed.TotalSeconds}");
+            Console.WriteLine($"{Counter / stopwatch.Elapsed.TotalSeconds}");
         }
     }
 }
