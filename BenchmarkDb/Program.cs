@@ -1,10 +1,14 @@
 ﻿using System;
 using System.Data.Common;
+using System.Data.SqlClient;
 using System.Diagnostics;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Dapper;
+
+using MySql.Data.MySqlClient;
+using Npgsql;
 
 namespace BenchmarkDb
 {
@@ -14,46 +18,61 @@ namespace BenchmarkDb
         static int MaxTransactions = 100000000;
         static int Counter = 0;
 
+        const string PostgreSql = nameof(PostgreSql);
+        const string MySql = nameof(MySql);
+        const string SqlServer = nameof(SqlServer);
+
         static object synlock = new object();
 
         static void Main(string[] args)
         {
-            //if (args.Length > 2)
-            //{
-            //    int.TryParse(args[1], out MaxThreads);
-            //    int.TryParse(args[2], out TransactionsPerThread);
-            //}
+            if (args.Length < 2)
+            {
+                Console.WriteLine("usage: database connectionstring");
+                Environment.Exit(1);
+            }
 
-            //DbProviderFactory factory = Npgsql.NpgsqlFactory.Instance;
-            //var connectionString = "Server=172.16.228.78;Database=hello_world;User Id=benchmarkdbuser;Password=benchmarkdbpass;Maximum Pool Size=1024;NoResetOnClose=true";
+            var connectionString = args[1];
 
-            DbProviderFactory factory = System.Data.SqlClient.SqlClientFactory.Instance;
-            var connectionString = "Server=172.16.228.78;Database=hello_world;User Id=sa;Password=Benchmarkdbp@55;";
-            //var connectionString = "Server=SEBROS-Z440;Database=benchmarks;User Id=sa;Password=Demo123!;";
+            DbProviderFactory factory = null;
 
-            //DbProviderFactory factory = MySql.Data.MySqlClient.MySqlClientFactory.Instance;
-            //var connectionString = "Server=172.16.228.78;Database=hello_world;User Id=benchmarkdbuser;Password=benchmarkdbpass;Maximum Pool Size=1024;";
+            switch (args[0])
+            {
+                case PostgreSql:
+                    factory = NpgsqlFactory.Instance;
+                    break;
+
+                case MySql:
+                    factory = MySqlClientFactory.Instance;
+                    break;
+
+                case SqlServer:
+                    factory = SqlClientFactory.Instance;
+                    break;
+
+                default:
+                    Console.WriteLine($"Acceped database values: {SqlServer}, {MySql}, {PostgreSql}");
+                    Environment.Exit(2);
+                    break;
+            }
+
+            Console.WriteLine($"Running with {args[0]} on {connectionString}");
 
             var stopwatch = new Stopwatch();
             stopwatch.Start();
 
-            var tasks = Enumerable.Range(1, Threads).Select(i =>
+            var tasks = Enumerable.Range(1, Threads).Select(async i =>
             {
-                return Thing();
-
-                async Task Thing()
+                while (Interlocked.Add(ref Counter, 1) < MaxTransactions)
                 {
-                    while (Interlocked.Add(ref Counter, 1) < MaxTransactions)
+                    using (var connection = factory.CreateConnection())
                     {
-                        using (var connection = factory.CreateConnection())
-                        {
-                            connection.ConnectionString = connectionString;
-                            var results = await connection.QueryAsync("SELECT id,message FROM fortune");
+                        connection.ConnectionString = connectionString;
+                        var results = await connection.QueryAsync("SELECT id,message FROM fortune");
 
-                            if (results.Count() != 12)
-                            {
-                                throw new ApplicationException();
-                            }
+                        if (results.Count() != 12)
+                        {
+                            throw new ApplicationException();
                         }
                     }
                 }
