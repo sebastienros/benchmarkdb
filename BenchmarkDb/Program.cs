@@ -89,7 +89,7 @@ namespace BenchmarkDb
             }
 
             stopwatch.Stop();
-            Console.WriteLine($"{Counter / stopwatch.Elapsed.TotalSeconds}");
+            Console.WriteLine($"{Counter} transactions in {stopwatch.Elapsed.TotalSeconds} seconds, {Counter / stopwatch.Elapsed.TotalSeconds} tps");
         }
     }
 }
