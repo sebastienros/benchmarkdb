@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.Data.Common;
 using System.Data.SqlClient;
 using System.Diagnostics;
@@ -14,9 +15,8 @@ namespace BenchmarkDb
 {
     class Program
     {
-        static int Threads = 1024;
-        static int MaxTransactions = 100000000;
-        static int Counter = 0;
+        //static int Concurrency = 32;
+        static volatile int Counter = 0;
 
         const string PostgreSql = nameof(PostgreSql);
         const string MySql = nameof(MySql);
@@ -51,7 +51,7 @@ namespace BenchmarkDb
                     break;
 
                 default:
-                    Console.WriteLine($"Acceped database values: {SqlServer}, {MySql}, {PostgreSql}");
+                    Console.WriteLine($"Accepted database values: {SqlServer}, {MySql}, {PostgreSql}");
                     Environment.Exit(2);
                     break;
             }
@@ -59,37 +59,63 @@ namespace BenchmarkDb
             Console.WriteLine($"Running with {args[0]} on {connectionString}");
 
             var stopwatch = new Stopwatch();
-            stopwatch.Start();
+            var tasks = new List<Task>();
+            var stopping = false;
+            var startTime = DateTime.UtcNow;
+            var lastDisplay = DateTime.UtcNow;
+            var lastNewTask = DateTime.UtcNow;
 
-            var tasks = Enumerable.Range(1, Threads).Select(async i =>
+            while (!stopping)
             {
-                while (Interlocked.Add(ref Counter, 1) < MaxTransactions)
-                {
-                    using (var connection = factory.CreateConnection())
-                    {
-                        connection.ConnectionString = connectionString;
-                        var results = await connection.QueryAsync("SELECT id,message FROM fortune");
+                Thread.Sleep(200);
+                var now = DateTime.UtcNow;
 
-                        if (results.Count() != 12)
+                if ((now - lastDisplay) > TimeSpan.FromMilliseconds(200))
+                {
+                    Console.Write($"{tasks.Count} Threads, {Counter / (now - lastDisplay).TotalSeconds} tps                                   ");
+                    Console.CursorLeft = 0;
+                    lastDisplay = now;
+                    Counter = 0;
+
+                }
+
+                if ((now - lastNewTask) > TimeSpan.FromMilliseconds(2000))
+                {
+                    tasks.Add(Task.Run(Thing));
+
+                    async Task Thing()
+                    {
+                        while (!stopping)
                         {
-                            throw new ApplicationException();
+                            Interlocked.Add(ref Counter, 1);
+
+                            try
+                            {
+                                using (var connection = factory.CreateConnection())
+                                {
+                                    connection.ConnectionString = connectionString;
+                                    var results = await connection.QueryAsync("SELECT id,message FROM fortune");
+
+                                    if (results.Count() != 12)
+                                    {
+                                        throw new ApplicationException("Not 12");
+                                    }
+                                }
+                            }
+                            catch(Exception e)
+                            {
+                                Console.WriteLine(e);
+                            }
                         }
                     }
+
+                    lastNewTask = now;
                 }
-            }).ToList();
-
-
-            tasks.Add(Task.Delay(TimeSpan.FromSeconds(10)));
-
-            Task.WhenAny(tasks).GetAwaiter().GetResult();
-
-            if (Counter <= 1)
-            {
-                throw new ApplicationException("Connection strings seems wrong");
             }
 
-            stopwatch.Stop();
-            Console.WriteLine($"{Counter} transactions in {stopwatch.Elapsed.TotalSeconds} seconds, {Counter / stopwatch.Elapsed.TotalSeconds} tps");
+            Task.WhenAll(tasks).GetAwaiter().GetResult();
+            
+            
         }
     }
 }
