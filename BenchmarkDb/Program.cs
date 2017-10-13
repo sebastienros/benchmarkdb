@@ -15,7 +15,6 @@ namespace BenchmarkDb
 {
     class Program
     {
-        //static int Concurrency = 32;
         static volatile int Counter = 0;
 
         const string PostgreSql = nameof(PostgreSql);
@@ -113,9 +112,7 @@ namespace BenchmarkDb
                 }
             }
 
-            Task.WhenAll(tasks).GetAwaiter().GetResult();
-            
-            
+            Task.WhenAll(tasks).GetAwaiter().GetResult();            
         }
     }
 }
