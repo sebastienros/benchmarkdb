@@ -16,6 +16,8 @@ namespace BenchmarkDb
     class Program
     {
         static volatile int Counter = 0;
+        static int MinTasks = 16;
+        static int MaxTasks = 16;
 
         const string PostgreSql = nameof(PostgreSql);
         const string MySql = nameof(MySql);
@@ -25,10 +27,22 @@ namespace BenchmarkDb
 
         static void Main(string[] args)
         {
+            System.Net.ServicePointManager.DefaultConnectionLimit = 60;
+
             if (args.Length < 2)
             {
-                Console.WriteLine("usage: database connectionstring");
+                Console.WriteLine("usage: database connectionstring [minTasks [maxTasks]]");
                 Environment.Exit(1);
+            }
+
+            if (args.Length > 2)
+            {
+                MinTasks = MaxTasks = int.Parse(args[2]);
+            }
+
+            if (args.Length > 3)
+            {
+                MaxTasks = int.Parse(args[3]);
             }
 
             var connectionString = args[1];
@@ -80,7 +94,15 @@ namespace BenchmarkDb
 
                 if ((now - lastNewTask) > TimeSpan.FromMilliseconds(2000))
                 {
-                    tasks.Add(Task.Run(Thing));
+                    for (int i = tasks.Count; i < MinTasks; i++)
+                    {
+                        tasks.Add(Task.Run(Thing));
+                    }
+
+                    if (tasks.Count <= MaxTasks)
+                    {
+                        tasks.Add(Task.Run(Thing));
+                    }                   
 
                     async Task Thing()
                     {
@@ -90,18 +112,38 @@ namespace BenchmarkDb
 
                             try
                             {
+                                var results = new List<Fortune>();
+
                                 using (var connection = factory.CreateConnection())
                                 {
-                                    connection.ConnectionString = connectionString;
-                                    var results = await connection.QueryAsync("SELECT id,message FROM fortune");
+                                    var command = connection.CreateCommand();
+                                    command.CommandText = "SELECT id,message FROM fortune";
 
-                                    if (results.Count() != 12)
+                                    connection.ConnectionString = connectionString;
+                                    await connection.OpenAsync();
+
+                                    command.Prepare();
+
+                                    using (var reader = await command.ExecuteReaderAsync())
                                     {
-                                        throw new ApplicationException("Not 12");
+                                        while (await reader.ReadAsync())
+                                        {
+                                            results.Add(new Fortune
+                                            {
+                                                Id = reader.GetInt32(0),
+                                                Message = reader.GetString(1)
+                                            });
+                                        }
                                     }
                                 }
+
+                                if (results.Count() != 12)
+                                {
+                                    throw new ApplicationException("Not 12");
+                                }
+
                             }
-                            catch(Exception e)
+                            catch (Exception e)
                             {
                                 Console.WriteLine(e);
                             }
@@ -114,5 +156,11 @@ namespace BenchmarkDb
 
             Task.WhenAll(tasks).GetAwaiter().GetResult();            
         }
+    }
+
+    public class Fortune
+    {
+        public int Id { get; set; }
+        public string Message { get; set; }
     }
 }
